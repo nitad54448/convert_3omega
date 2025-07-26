@@ -1,2 +1,3 @@
 # convert_3omega
-convert a sim data to a readable file
+A simple tool to convert a sim_3omega data to a file that can be analyzed with calc_3omega program.
+---
