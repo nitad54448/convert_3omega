@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3-Omega Data File Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 flex items-center justify-center min-h-screen py-8">
+
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-8 space-y-6">
+        
+        <!-- Header Section -->
+        <div class="text-center">
+            <h1 class="text-3xl font-bold text-gray-900">3-Omega Data Converter</h1>
+            <p class="text-gray-600 mt-2">Convert data from <code class="bg-gray-200 px-2 py-1 rounded">sim.html</code> to a format compatible with <code class="bg-gray-200 px-2 py-1 rounded">calc.html</code>.</p>
+        </div>
+
+        <!-- Step 1: File Upload -->
+        <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+            <label for="file-upload" class="cursor-pointer">
+                <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true">
+                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                <span class="mt-2 block text-sm font-semibold text-blue-600">Upload a .dat file</span>
+                <span id="file-name-display" class="mt-1 block text-xs text-gray-500">No file selected</span>
+            </label>
+            <input id="file-upload" name="file-upload" type="file" class="sr-only" accept=".dat, .txt">
+        </div>
+
+        <!-- NEW: Parsed Parameters Display -->
+        <div id="parsed-params-panel" class="hidden">
+            <h2 class="text-xl font-semibold text-gray-800">Parsed Simulation Parameters</h2>
+            <div id="params-display" class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <!-- JavaScript will populate this section -->
+            </div>
+            <p class="text-xs text-gray-500 mt-2">These are the parameters from the simulation file. Please ensure they match the values in `calc.html` for a correct comparison.</p>
+        </div>
+
+
+        <!-- Step 2: Conversion Controls -->
+        <div id="controls-panel" class="hidden">
+             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="control-group">
+                    <label for="relative-noise" class="block text-sm font-medium text-gray-700">Relative Noise (%)</label>
+                    <input type="number" id="relative-noise" value="0.5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2">
+                    <p class="mt-1 text-xs text-gray-500">Percentage of signal to add as random noise.</p>
+                </div>
+                <div class="control-group">
+                    <label for="absolute-noise" class="block text-sm font-medium text-gray-700">Absolute Noise Floor (V)</label>
+                    <input type="number" id="absolute-noise" value="5e-9" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2">
+                    <p class="mt-1 text-xs text-gray-500">Minimum noise level, e.g., 5e-9 for 5 nV.</p>
+                </div>
+            </div>
+            <button id="convert-button" class="mt-4 w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:bg-gray-400">
+                Convert File
+            </button>
+        </div>
+
+        <!-- Step 3: Preview and Download -->
+        <div id="output-panel" class="hidden">
+            <h2 class="text-xl font-semibold text-gray-800">Converted File Preview</h2>
+            <textarea id="output-preview" readonly class="mt-2 w-full h-48 bg-gray-50 border border-gray-300 rounded-md p-2 font-mono text-xs"></textarea>
+            <button id="download-button" class="mt-4 w-full bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                Download Converted File
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Global variables to hold file data ---
+        let rawFileContent = null;
+        let convertedFileContent = null;
+        let originalFileName = 'converted_data.dat';
+
+        // --- DOM Element References ---
+        const fileUploadInput = document.getElementById('file-upload');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        const controlsPanel = document.getElementById('controls-panel');
+        const outputPanel = document.getElementById('output-panel');
+        const parsedParamsPanel = document.getElementById('parsed-params-panel');
+        const paramsDisplayDiv = document.getElementById('params-display');
+        const convertButton = document.getElementById('convert-button');
+        const downloadButton = document.getElementById('download-button');
+        const outputPreview = document.getElementById('output-preview');
+
+        // --- Event Listeners ---
+        fileUploadInput.addEventListener('change', handleFileSelect);
+        convertButton.addEventListener('click', processConversion);
+        downloadButton.addEventListener('click', downloadConvertedFile);
+
+        /**
+         * Handles the file selection event.
+         * Reads the file content and updates the UI.
+         */
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                fileNameDisplay.textContent = 'No file selected';
+                controlsPanel.classList.add('hidden');
+                outputPanel.classList.add('hidden');
+                parsedParamsPanel.classList.add('hidden');
+                return;
+            }
+
+            originalFileName = file.name.replace('.dat', '_converted.dat');
+            fileNameDisplay.textContent = `Selected: ${file.name}`;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                rawFileContent = e.target.result;
+                // Automatically run conversion on file select for a smoother experience
+                processConversion();
+                controlsPanel.classList.remove('hidden');
+            };
+            reader.onerror = () => {
+                alert('Error reading file.');
+                fileNameDisplay.textContent = 'Error reading file.';
+                controlsPanel.classList.add('hidden');
+                parsedParamsPanel.classList.add('hidden');
+            };
+            reader.readAsText(file);
+        }
+
+        /**
+         * Main logic for converting the data.
+         * This function is triggered by the "Convert File" button or automatically on file select.
+         */
+        function processConversion() {
+            if (!rawFileContent) {
+                alert('Please upload a file first.');
+                return;
+            }
+
+            try {
+                // --- 1. Parse ALL Parameters from sim.html output header ---
+                const lines = rawFileContent.split('\n');
+                const params = {};
+                const param_map = {
+                    'Total Wire Resistance (R₀) [Ω]': 'R0_ohm',
+                    'Wire Length (L) [mm]': 'L_mm',
+                    'Wire Width (2b) [mm]': 'two_b_mm',
+                    'Thermal Coeff. of Resistance (α) [1/K]': 'tcr_1_per_K',
+                    'Substrate Thermal Conductivity (κₛ) [W/mK]': 'kappa_s_W_mK',
+                    'Substrate Thickness (dₛ) [mm]': 'd_s_mm',
+                    'Substrate Thermal Diffusivity (Dₛ) [mm²/s]': 'D_s_mm2_s',
+                    'Heating Current (I₀) [A, peak]': 'current_peak_A'
+                };
+
+                lines.filter(line => line.startsWith('#')).forEach(line => {
+                    if (line.includes(':')) {
+                        const parts = line.replace('# ', '').split(/:(.*)/s);
+                        const key = parts[0].trim();
+                        const value = parseFloat(parts[1].trim());
+                        if (param_map[key]) {
+                            params[param_map[key]] = value;
+                        }
+                    }
+                });
+                
+                // --- Display parsed parameters in the UI ---
+                paramsDisplayDiv.innerHTML = ''; // Clear previous entries
+                let foundParams = false;
+                for (const displayName in param_map) {
+                    const key = param_map[displayName];
+                    if (params[key] !== undefined) {
+                        foundParams = true;
+                        const value = params[key];
+                        const paramCard = `
+                            <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                <span class="font-medium text-gray-600">${displayName}:</span>
+                                <span class="font-mono text-blue-700 float-right">${value}</span>
+                            </div>`;
+                        paramsDisplayDiv.innerHTML += paramCard;
+                    }
+                }
+
+                if (!foundParams) {
+                   throw new Error('Could not parse any known parameters from the file header. Is this a valid sim.html data file?');
+                }
+                parsedParamsPanel.classList.remove('hidden');
+
+
+                // --- 2. Parse Data Table from sim.html output ---
+                const data = [];
+                let isDataSection = false;
+                for (const line of lines) {
+                    if (line.trim().startsWith('ln(2w)')) {
+                        isDataSection = true;
+                        continue;
+                    }
+                    if (isDataSection && line.trim()) {
+                        const values = line.split(/\s+/).map(parseFloat);
+                        if (values.length >= 6) {
+                            data.push({
+                                ln_2omega: values[0],
+                                freq: values[1],
+                                v3_rms_in_phase: values[4],
+                                v3_rms_out_of_phase: values[5],
+                            });
+                        }
+                    }
+                }
+
+                if (data.length === 0) {
+                    throw new Error('No data rows found in the file.');
+                }
+
+                // --- 3. Build the output string for calc.html ---
+                let output = '';
+                
+                // JSON Header now includes all parsed params
+                const header = {
+                    "conversion_source": "sim.html output",
+                    "conversion_date": new Date().toISOString(),
+                    "original_params": params 
+                };
+                output += JSON.stringify(header, null, 2) + '\n\n';
+
+                // Dataset block start
+                output += '***\n';
+                
+                // R0 line (calc.html can average multiple values, but one is fine)
+                output += `--- > R0 : ${params.R0_ohm.toFixed(4)}\n`;
+
+                // Data header for calc.html
+                output += 'time /sec   I /mA   Ipeak /mA   freq /Hz   V1 /V   Phase1 /deg   V3x /V   esdV3X /V   V3y /V   esdV3Y /V   Phase3 /deg\n';
+
+                // --- 4. Transform and write data rows ---
+                const relativeNoise = parseFloat(document.getElementById('relative-noise').value) / 100;
+                const absoluteNoise = parseFloat(document.getElementById('absolute-noise').value);
+                const current_peak_mA = params.current_peak_A * 1000;
+
+                data.forEach((row, index) => {
+                    const v3x = row.v3_rms_in_phase;
+                    const v3y = row.v3_rms_out_of_phase;
+
+                    // Generate realistic noise based on the signal strength
+                    const esdV3X = Math.abs(v3x * relativeNoise) + absoluteNoise;
+                    const esdV3Y = Math.abs(v3y * relativeNoise) + absoluteNoise;
+
+                    // Add a random component (Gaussian-like via Box-Muller transform for better realism)
+                    const u1 = Math.random();
+                    const u2 = Math.random();
+                    const rand_std_normal_1 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+                    const rand_std_normal_2 = Math.sqrt(-2.0 * Math.log(u1)) * Math.sin(2.0 * Math.PI * u2);
+
+                    const noisy_v3x = v3x + rand_std_normal_1 * esdV3X;
+                    const noisy_v3y = v3y + rand_std_normal_2 * esdV3Y;
+
+                    // Mock values for columns calc.html needs but sim.html doesn't provide
+                    const time_sec = index * 0.1; // Mock time
+                    const current_mA = current_peak_mA / Math.sqrt(2); // RMS current
+
+                    // Format the line for calc.html
+                    const outputRow = [
+                        time_sec.toFixed(3).padStart(10),
+                        current_mA.toExponential(2).padStart(9),
+                        current_peak_mA.toExponential(2).padStart(11),
+                        row.freq.toExponential(3).padStart(10),
+                        '0.00e+00'.padStart(9), // V1
+                        '0.0'.padStart(13), // Phase1
+                        noisy_v3x.toExponential(3).padStart(10),
+                        esdV3X.toExponential(1).padStart(11),
+                        noisy_v3y.toExponential(3).padStart(10),
+                        esdV3Y.toExponential(1).padStart(11),
+                        '0.0'.padStart(13) // Phase3
+                    ].join(' ');
+
+                    output += outputRow + '\n';
+                });
+
+                // End of data block
+                output += '--- > K and esd K\n';
+
+                // --- 5. Finalize and update UI ---
+                convertedFileContent = output;
+                outputPreview.value = convertedFileContent;
+                outputPanel.classList.remove('hidden');
+
+            } catch (error) {
+                alert(`Conversion failed: ${error.message}`);
+                console.error(error);
+                outputPanel.classList.add('hidden');
+                parsedParamsPanel.classList.add('hidden');
+            }
+        }
+        
+        /**
+         * Creates a Blob and triggers a download for the converted file.
+         */
+        function downloadConvertedFile() {
+            if (!convertedFileContent) {
+                alert('No converted data to download.');
+                return;
+            }
+
+            const blob = new Blob([convertedFileContent], { type: 'text/plain;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", originalFileName);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+    </script>
+</body>
+</html>
